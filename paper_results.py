@@ -226,8 +226,7 @@ def analysis_for_exp2(cat_to_ent, ent_to_cat, cat_to_class, class_to_cat, polyse
     cat_to_centroid_ents = {cat: [ent for ent in cat_to_ent[cat] if ent in centroid_ents] for cat in cat_to_ent}
 
     # Load embeddings and construct centroids from the training entities
-    with open('auxiliary_data/noun_and_name_vectors.pkl', "rb") as picklefile:
-        embs = pickle.load(picklefile)
+    embs = read_pickled_vectors()
     for key in embs:
         embs[key] = normalize(embs[key])
     embs.update({cat + "!C": centroid([embs[ent] for ent in cat_to_centroid_ents[cat]]) for cat in cat_to_ent})
@@ -403,6 +402,13 @@ def rank_delta(catps, catp2judgs, catp2preds):
     delta = {catp: ranks[catp] - preds[catp] for catp in ranks.keys()}
     return delta
 
+
+def read_pickled_vectors():
+    embs = {}
+    for i in range(4):
+        with open(f'auxiliary_data/noun_and_name_vectors_{i}.pkl', "rb") as picklefile:
+            embs.update(pickle.load(picklefile))
+    return embs
 
 if __name__ == "__main__":
 
