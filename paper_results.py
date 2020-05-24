@@ -156,6 +156,36 @@ def analysis_for_exp1(cat_to_ent, ent_to_cat, cat_to_class, class_to_cat, polyse
 
     print('------------------------------')
 
+    ###############################################
+    ### Figure 4: Correlation per namebased size ##
+    ###############################################
+    print("Figure 4: Correlation per namebased size.")
+    if input("This takes a long time. Skip? Y/n").lower().startswith("n"):
+        N_SAMPLED_NAMEBASED = 50
+        np.random.seed(12345)
+        auxiliary_path = 'exp1_relatedness/exp1_aggregate_scores_per_namebased_size.csv'
+        plot_path = "plots/correlation_per_namebased_size.png"
+
+        # Load model and human scores from auxiliary file
+        print("Loading", auxiliary_path)
+        with open(auxiliary_path, 'r'):
+            all_scores = pd.read_csv(auxiliary_path)
+
+        # Compute correlations many times, with centroids sampled differently
+        print("Computing correlation stats for {} different choices of sampled names...".format(N_SAMPLED_NAMEBASED))
+        correlations_sampled = []
+        for _ in range(N_SAMPLED_NAMEBASED):
+            # Sample by taking one from each method (namebased1, namebased2, namebased3, ... predicate) across all category pairs
+            sample = all_scores.groupby(['cat1', 'cat2', 'model'], group_keys=False).apply(lambda x: x.sample(1)).sort_index()
+            results = correlations_per_namebased_size(sample)
+            correlations_sampled.append(results)
+        correlations_sampled = pd.concat(correlations_sampled)
+
+        # Plot correlation coefficients
+        plot_correlation_per_namebased_size(correlations_sampled, plot_path)
+
+    print("----------------------")
+
 
 def analysis_for_exp2(cat_to_ent, ent_to_cat, cat_to_class, class_to_cat, polysemy_data):
     ##############################
@@ -409,6 +439,85 @@ def read_pickled_vectors():
         with open(f'auxiliary_data/noun_and_name_vectors_{i}.pkl', "rb") as picklefile:
             embs.update(pickle.load(picklefile))
     return embs
+
+
+def correlations_per_namebased_size(scores_df):
+    """
+    Compute correlation for all models, given one way of sampling namebased representations.
+    :param scores_df: Dataframe as read from data/exp1_aggregate_scores_per_namebased_size.csv.
+    :return: dataframe with correlation coefficients per model
+    """
+
+    # Ugly maneuver to get method as columns whilst maintaining other info:
+    means = scores_df[['cat1', 'cat2', 'model', 'model_cos']].groupby(['cat1', 'cat2', 'model']).mean().unstack()['model_cos'].reset_index()
+    other_info = scores_df[['cat1', 'cat2', 'model', 'n_ent1', 'n_ent2', 'n_ent_min', 'human_relatedness']].groupby(['cat1', 'cat2']).agg(lambda x: x.value_counts().index[0])
+    scores_df = pd.merge(means, other_info, how='left', on=['cat1', 'cat2'])
+
+    # Compute Spearman correlations for each type of representation (namebased1-5max, nounbased)
+    correlations = {}      # between model and human.
+
+    # Loop over all methods (variable n is either an integer or "max"; and label is "namebased" or "nounbased".)
+    for n, label in zip(list(range(1, 6)) + ["max"] + list(range(1, 6)) + ["max"],
+                        ["namebased"] * 6 + ["nounbased"] * 6):
+        # First restrict the dataframe to the relevant points, and change the labels; sorry, bit ugly!
+        if isinstance(n, int):
+            df = scores_df.loc[scores_df["n_ent_min"] >= n]
+            if label == "namebased":
+                oldlabel = label + str(n)
+                newlabel = oldlabel
+            if label == "nounbased":
+                oldlabel = label
+                newlabel = label + str(n)
+        else:
+            df = scores_df
+            oldlabel = label if label == "nounbased" else (label + "max")
+            newlabel = label + "max"
+
+        # Now compute correlations (model~human)
+        correlations[newlabel] = {}
+        r, p = spearmanr(df[oldlabel], df['human_relatedness'])   # TODO avoid reliance on oldlabel
+        correlations[newlabel][("spearman", "all")] = r
+        correlations[newlabel][("spearman_p", "all")] = p
+
+    # Some Pandas magic to get a useful dataframe
+    results = pd.DataFrame(correlations)
+    results = results.transpose()
+    results = results.stack(1).reset_index()
+    results["model"] = results["level_0"].apply(lambda x: "namebased" if x.startswith("namebased") else "nounbased")
+    results[("size")] = results["level_0"].apply(lambda x: x[len("namebased"):] if x.startswith("namebased") else x[len("nounbased"):])
+    del results['level_0']
+    results = results.rename(columns={"level_1": "class", "level_2": "measure"})
+
+    results.loc[results['size'] == -1, 'size'] = 'max'
+    results['size'].apply(str)
+
+    return results
+
+
+def plot_correlation_per_namebased_size(correlations, plot_path):
+    """
+    Creates figure 4 in the paper, a plot of correlation coefficient per number of names used for the namebased representation.
+    :param correlations: dataframe as created by correlations_per_namebased_size()
+    :param plot_path: where the plot is saved
+    """
+    correlations.replace(to_replace={'size': {'max': 'all'}}, inplace=True)
+
+    plt.figure(figsize=(10, 5))
+    plt.rcParams.update({'font.size': 16})
+
+    ax = sns.barplot(x="size", y="spearman", hue="model", data=correlations.loc[correlations['model'] == 'namebased'], ci="sd")
+    ax.axhline(0.560372, ls='--', color="black")
+    ax.text(-.4, 0.58, "NounBased")
+
+    plt.ylim(0.17, .83)     # For consistency (though values can be sub-zero...)
+    plt.xlabel("# of names per category for NameBased model")
+    plt.ylabel("Spearman's rho")
+
+    plt.tight_layout()
+    plt.savefig(plot_path)
+    print("Plot saved as", plot_path)
+    plt.close()
+
 
 if __name__ == "__main__":
 
