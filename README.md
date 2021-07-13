@@ -1,6 +1,7 @@
-# names-and-categories
-An anonymous repository for review.
+# Distributional models of category concepts based on names of category members
 
-For the paper "Word concepts, category concepts, and rigid designation".
+Data and analysis code used for the paper:
+
+_Westera, Gupta, Boleda & Padó (2021). Distributional models of category concepts based on names of category members. Cognitive Science._
 
 The file `paper_results.py` conducts the analyses relevant to the paper, and creates the plots it contains.
